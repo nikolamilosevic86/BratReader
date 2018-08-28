@@ -29,7 +29,7 @@ class OutputCandidate:
 source = sys.argv[1]
 r = RepoModel(source)
 # print(r.documents )
-myfile = open("DrugInteractionCSV14.arff", 'w')
+myfile = open("DrugInteractionCSV15.arff", 'w')
 # wr = csv.writer(myfile, quoting=csv.QUOTE_ALL)
 # wr.writerow(["LinkType","DrugRepr","OtherRepr","BetweenLength","NumTokensBetween","IsPositive"])
 myfile.write('''@RELATION wordcounts
