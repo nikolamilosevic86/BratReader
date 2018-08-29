@@ -1,8 +1,15 @@
 import sys
 import csv
+
+import sklearn
+from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
+
 from bratreader.repomodel import RepoModel
 # from nltk.parse.stanford import StanfordDependencyParser
 import nltk
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 
 class Annotation:
     def __init__(self):
@@ -45,6 +52,7 @@ myfile.write('''@RELATION wordcounts
 @DATA
 ''')
 negative_count = 0
+samples = []
 for doca in r.documents:
     AllAnnotation = []
     DrugAnnotations = []
@@ -125,6 +133,10 @@ for doca in r.documents:
                     sample.LinkType, sample.DrugRepr.replace('"',''), sample.OtherRepr.replace('"',''), distance,
                     number_tokens, textBetween.replace('\n',' ').replace('"',' ').replace('\'',' '),
                     str(sample.isPositive)))
+                    samples.append(
+                        (sample.LinkType, sample.DrugRepr.replace('"', ""), sample.OtherRepr.replace('"', ''), distance,
+                         number_tokens, textBetween.replace('\n', ' ').replace('"', ' ').replace('\'', ' '),
+                         str(sample.isPositive)))
 
     for drug in DrugAnnotations:
         for other in AllAnnotation:
@@ -179,16 +191,63 @@ for doca in r.documents:
                 myfile.write('"%s","%s","%s",%d,%d,"%s",%s\n' % (sample.LinkType, sample.DrugRepr.replace('"',""), sample.OtherRepr.replace('"',''), distance,
                                                          number_tokens, textBetween.replace('\n',' ').replace('"',' ').replace('\'',' '),
                                                          str(sample.isPositive)))
+                samples.append((sample.LinkType, sample.DrugRepr.replace('"',""), sample.OtherRepr.replace('"',''), distance,
+                                                         number_tokens, textBetween.replace('\n',' ').replace('"',' ').replace('\'',' '),
+                                                         str(sample.isPositive)))
 
-
-    # for sample in PositiveSamples:
-    #     distance = len(sample.textBetween)
-    #     tokens = nltk.word_tokenize(sample.textBetween)
-    #     number_tokens = len(tokens)
-    #     wr.writerow([sample.LinkType,sample.DrugRepr,sample.OtherRepr,distance,number_tokens,sample.isPositive])
-    # for sample in NegativeSamples:
-    #     distance = len(sample.textBetween)
-    #     tokens = nltk.word_tokenize(sample.textBetween)
-    #     number_tokens = len(tokens)
-    #     wr.writerow([sample.LinkType, sample.DrugRepr, sample.OtherRepr, distance, number_tokens, sample.isPositive])
 myfile.close()
+
+df = pd.DataFrame(samples, columns=("LinkType","DrugRepr","OtherRepr","Distance","NumberOfTokens","TextBetween","IsPositive"))
+df = df.sample(frac=1).reset_index(drop=True)
+print(df.head())
+df['is_train'] = np.random.uniform(0, 1, len(df)) <= .8
+train, test = df[df['is_train']==True], df[df['is_train']==False]
+print('Number of observations in the training data:', len(train))
+print('Number of observations in the test data:',len(test))
+features = df.columns[1:6]
+print(features)
+y = pd.factorize(train['IsPositive'])[0]
+print(y)
+print(len(y))
+feat_vector = train[features]
+print("FeatureVector shape")
+print(feat_vector.shape)
+print(feat_vector.head())
+count_vect1 = CountVectorizer(max_features = 800)
+count_vect2 = CountVectorizer(max_features = 800)
+count_vect3 = CountVectorizer(max_features = 800)
+X_train_counts_1 = count_vect1.fit_transform(train["TextBetween"])
+X_train_counts_drugs = count_vect2.fit_transform(train['DrugRepr'])
+X_train_counts_other = count_vect3.fit_transform(train['OtherRepr'])
+print(X_train_counts_1.shape)
+print(X_train_counts_drugs.shape)
+print(X_train_counts_other.shape)
+X_train_counts = pd.merge(pd.DataFrame(X_train_counts_1.toarray()),pd.DataFrame(X_train_counts_drugs.toarray()),left_index=True,right_index=True)
+X_train_counts= pd.merge(X_train_counts,pd.DataFrame(X_train_counts_other.toarray()),left_index=True,right_index=True)
+#X_train_counts = pd.merge(X_train_counts,train['Distance'].to_frame(),left_index=True,right_index=True)
+print("X_train_counts")
+print(X_train_counts.shape)
+tf_transformer = TfidfTransformer(use_idf=False).fit(X_train_counts)
+X_train_tf = tf_transformer.transform(X_train_counts)
+print("X_train_ft")
+print(X_train_tf.shape)
+print("Training")
+clf = RandomForestClassifier(n_jobs=3, random_state=0,n_estimators =150)
+clf.fit(X_train_tf, y)
+print("Trained")
+feat_vector2 = test[features]
+X_new_counts_1 = count_vect1.transform(test["TextBetween"])
+X_new_counts_drugs = count_vect2.transform(test['DrugRepr'])
+X_new_counts_other = count_vect3.transform(test['OtherRepr'])
+X_new_counts = pd.merge(pd.DataFrame(X_new_counts_1.toarray()),pd.DataFrame(X_new_counts_drugs.toarray()),left_index=True,right_index=True)
+X_new_counts= pd.merge(X_new_counts,pd.DataFrame(X_new_counts_other.toarray()),left_index=True,right_index=True)
+#X_new_counts = pd.merge(X_new_counts,test['Distance'].to_frame(),left_index=True,right_index=True)
+X_new_tfidf = tf_transformer.transform(X_new_counts)
+y_pred = clf.predict(X_new_tfidf)
+y_train = pd.factorize(test['IsPositive'])[0]
+print(sklearn.metrics.classification_report(y_pred,y_train))
+# View target
+
+
+
+
